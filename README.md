@@ -54,7 +54,7 @@ ACE Analyzer v3.0 is a comprehensive Python tool that analyzes Active Directory 
 	```bash
 	  $template = Get-ADObject -Filter {cn -eq "TemplateName"} -Properties nTSecurityDescriptor
 	$template.nTSecurityDescriptor.Access | ConvertTo-Json > aces.json
-	  ```
+	```
 - **Advantages**:
 	- Simple format
 	- Easy to generate manually
@@ -199,7 +199,7 @@ foreach ($template in $templates) {
 	- Ensure using `*_certtemplates.json` not `*_computers.json`
 
 # Usage
-![[Pasted image 20251212110121.png]]
+![ALT Text](usage.png]
 - Find all vulnerable templates in domain
 	- `python3 ace_analyzer.py <CERT-TEMPLATE-DUMP>.json`
 - Show all templates, including secure ones
