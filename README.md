@@ -209,14 +209,14 @@ foreach ($template in $templates) {
 
 # Quick Summary of dangerous ESC configurations and Remediation
 ## ESC1 - Subject Alternative Name Specification
-- Template allows users to specify any identity in certificate
-**Requirements for ESC1**:
+- Template allows users to specify any identity in certificate  
+**Requirements for ESC1**:  
 - Enrollment rights for low-privileged users
 - ENROLLEE_SUPPLIES_SUBJECT flag enabled
 - Client Authentication EKU
-- Manager Approval disabled
+- Manager Approval disabled  
 **Why it's dangerous**
-- User can request certificate as Domain Admin
+- User can request certificate as Domain Admin  
 **Attack Chain:** 
 - User -> Request cert as DA -> Authenticate -> Full domain compromise
 
