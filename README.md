@@ -199,7 +199,7 @@ foreach ($template in $templates) {
 	- Ensure using `*_certtemplates.json` not `*_computers.json`
 
 # Usage
-![ALT Text](usage.png]
+![ALT Text](usage.png)
 - Find all vulnerable templates in domain
 	- `python3 ace_analyzer.py <CERT-TEMPLATE-DUMP>.json`
 - Show all templates, including secure ones
