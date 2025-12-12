@@ -209,85 +209,108 @@ foreach ($template in $templates) {
 
 # Quick Summary of dangerous ESC configurations and Remediation
 ## ESC1 - Subject Alternative Name Specification
-- Template allows users to specify any identity in certificate  
+- Template allows users to specify any identity in certificate
+  
 **Requirements for ESC1**:  
 - Enrollment rights for low-privileged users
 - ENROLLEE_SUPPLIES_SUBJECT flag enabled
 - Client Authentication EKU
-- Manager Approval disabled  
+- Manager Approval disabled
+  
 **Why it's dangerous**
-- User can request certificate as Domain Admin  
+- User can request certificate as Domain Admin
+  
 **Attack Chain:** 
 - User -> Request cert as DA -> Authenticate -> Full domain compromise
 
 ## ESC2 - Any Purpose EKU abuse
 - Certificate can be used for any purpose
+  
 **Requirements for ESC2:**
 - Template has "Any Purpose" EKU (OID 2.5.29.37.0) or no EKU
 - Manager approval disabled
 - Low-privileged users can enroll
+  
 **Why it's dangerous:**
 - Certificate can be used for any purpose, including as an enrollment agent to request certificates on behalf of others.
+  
 **Attack Chain:**
 - User -> Get Any Purpose cert -> Use as enrollment agent -> Request DA cert -> Domain compromise
 
 ## ESC3 - Certificate Request Agent abuse 
 - Allows requesting certificates on behalf of other users without authorization
+
 **Requirements for ESC3:**
 - Template has Certificate Request Agent EKU (OID 1.3.6.1.4.1.311.20.2.1)
 - Manager approval disabled
 - Low-privileged users cna enroll
+  
 **Why it's dangerous:**
 - Allows requesting certificates on behalf of other users without proper authorization.
+  
 **Attack Chain:**
 - User -> Get enrollment agent cert -> Request cert for DA -> Authenticate as DA -> Domain compromise
 
 ## ESC4 - Allowed Template Modification
 - Low-privileged users can modify template settings
+
 **Requirements for ESC4:**
 - Low-privileged principals have WriteProperty, WriteDacl, WriteOwner, or GenericAll
 - On certificate template objects
+
 **Why it's dangerous:**
 - Attacker can enable ESC1/ESC2/ESC3 conditions and escalate to Domain Admin
+
 **Attack Chain:**
 - Low-privileged user -> Modify template -> Enable ESC1 -> Request admin certificate -> Domain compromise
 
 ## ESC5 - PKI Object Access Control
 - Manipulation of PKI infrastructure
+- 
 **Requirements for ESC5:**
 - The CA server’s AD computer object (i.e., compromise through S4U2Self or S4U2Proxy)
 - The CA server’s RPC/DCOM server
 - Any descendant AD object or container in the container ```CN=Public Key Services,CN=Services,CN=Configuration,DC=<COMPANY>,DC=<COM>``` (e.g., the Certificate Templates container, Certification Authorities container, the NTAuthCertificates object, the Enrollment Services Container, etc.)
+
 **Why it's dangerous:**
 - Allows manipulation of core PKI infrastructure, potentially adding rogue CAs.
+
 **Attack Chain (Golden Cert):**
 - User -> Compromise CA server (RBCD/Shadow Credentials) -> Gain local admin -> Extract CA private key -> Forge certificate for DA -> Authenticate as DA -> Domain control
+
 **Attack Chain (Rogue CA):**
 - User with WriteDACL on PKI objects -> Modify NTAuthCertificates -> Add rogue CA -> Issue certificates as any user -> Authenticate as DA -> Domain control
+
 **Attack Chain (Machine Account Takeover):** 
 - User with write access to CA computer object -> RBCD/Shadow Credentials attack -> Compromise CA server -> Backup CA private key -> Forge Golden Certificate -> Authenticate as DA -> Domain control
 
 ## ESC6 - EDITF_ATTRIBUTESUBJECTALTNAME2 Flag
 SAN specification making "secure" templates vulnerable
+
 **Requirements for ESC6:**
 - EDITF_ATTRIBUTESUBJECTALTNAME2 flag enabled on Certificate Authority
 - At least one template that allows low-privileged user enrollment
 - Template allows client authentication (for domain authentication)
 - Manager approval disabled
+
 **Why it's dangerous:**
--Even "secure" templates become vulnerable to SAN specification attacks.
+- Even "secure" templates become vulnerable to SAN specification attacks.
+
 **Attack Chain:**
 - User -> Request cert from any template -> Add SAN for DA -> Authenticate as DA -> Domain control
 
 ## ESC7 - Vulnerable CA Access Control
 Modifying CA settings is allowed
+
 **Requirements for ESC7:**
 - Low-privileged user has ManageCA or ManageCertificates permissions on CA object
 - ManageCA allows: modifying CA settings, enabling EDITF_ATTRIBUTESUBJECTALTNAME2, adding Certificate Officers
 - ManageCertificates allows: approving pending certificate requests
 - At least one template available for enrollment with client authentication
+
 **Why it's dangerous:**
 - Allows modifying CA settings, enabling dangerous flags, or approving pending certificates.
+
 **Attack Chain:**
 - User -> Modify CA settings -> Enable ESC6 -> Exploit any template -> Domain control
 
@@ -299,8 +322,10 @@ Modifying CA settings is allowed
 - NTLM authentication accepted on web enrollment endpoint
 - At least one certificate template allows domain computer/user enrollment and client authentication
 - Ability to coerce victim authentication (PetitPotam, PrinterBug, etc.)
+
 **Why it's dangerous:**
 - NTLM relay attacks can capture authentication and request certificates as the victim.
+
 **Attack Chain:**
 - Attacker -> Relay NTLM -> Request cert as victim -> Authenticate as victim
 
@@ -324,6 +349,7 @@ Modifying CA settings is allowed
 | NDJSON          | 100MB - 5GB         | 2-30s      | Medium       |
 | Certipy JSON    | 50KB - 10MB         | < 1s       | Low          |
 | Raw ACE Array   | 1KB - 100KB         | < 1s       | Very Low     |
+
 For large NDJSON files (>1GB), consider:
 - Converting to BloodHound format first
 - Extracting only certificate templates
