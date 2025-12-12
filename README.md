@@ -266,7 +266,7 @@ foreach ($template in $templates) {
 
 ## ESC5 - PKI Object Access Control
 - Manipulation of PKI infrastructure
-- 
+
 **Requirements for ESC5:**
 - The CA server’s AD computer object (i.e., compromise through S4U2Self or S4U2Proxy)
 - The CA server’s RPC/DCOM server
