@@ -185,7 +185,7 @@ Modifying CA settings is allowed
 	```bash
 	  $template = Get-ADObject -Filter {cn -eq "TemplateName"} -Properties nTSecurityDescriptor
 	$template.nTSecurityDescriptor.Access | ConvertTo-Json > aces.json
-	```
+ 	```
 - **Advantages**:
 	- Simple format
 	- Easy to generate manually
@@ -313,21 +313,6 @@ foreach ($template in $templates) {
     $aces | ConvertTo-Json > "$($template.Name)_aces.json"
 }
 ```
-
-## Format Issues Troubleshooting
-- "Could not find valid JSON in file"
-	- Check if file is valid JSON: `jq . file.json`
-	- Check for BOM or encoding issues: `file file.json`
-- "No valid ACE data found"
-	- Verify file contains ACE information
-	- Check field names match expected format
-	- Use `-v` flag if available for verbose output
-- "Detected NDJSON but no templates"
-	- File may not contain certificate template objects
-	- Verify: `grep pKICertificateTemplate objects.ndjson`
-- "BloodHound format but no templates"
-	- File may be for different object type
-	- Ensure using `*_certtemplates.json` not `*_computers.json`
 
 # General Troubleshooting / Frequently Made Mistakes (FMM)
 - "No valid ACE data found"
