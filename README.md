@@ -1,3 +1,7 @@
+SADLY i realized that the tool is prone to false positives...
+Detects ESC4 as soon as any attribute can be modified but not necessarly the required attributes
+Needs to be adjusted
+
 # Overview
 ACE Analyzer v3.0 is a comprehensive Python tool that analyzes Active Directory Certificate Services (AD CS) certificate templates and Certificate Authorities to detect ESC1 through ESC8 vulnerabilities. Tho it only partial detects ESC5 and provides a warning for ESC8 when detecting an HTTP web enrollment interface.
 
