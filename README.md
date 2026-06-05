@@ -1,435 +1,678 @@
-SADLY i realized that the tool is prone to false positives...
-Detects ESC4 as soon as any attribute can be modified but not necessarly the required attributes
-Needs to be adjusted
+Updated version got not fully tested yet, so no guarantee for the output, in the end always keep using your own brain.
 
-# Overview
-ACE Analyzer v3.0 is a comprehensive Python tool that analyzes Active Directory Certificate Services (AD CS) certificate templates and Certificate Authorities to detect ESC1 through ESC8 vulnerabilities. Tho it only partial detects ESC5 and provides a warning for ESC8 when detecting an HTTP web enrollment interface.
 
-# Installation / Requirements
-- No installation required
-- Download / clone git repository
-	- `git clone https://github.com/vianic/ace_analyzer.git`
-- Python 3.6 or above
+# ACE Analyzer v4.1
 
-# Usage
-![ALT Text](usage.png)
-- Find all vulnerable templates in domain
-	- `python3 ace_analyzer.py <CERT-TEMPLATE-DUMP>.json`
-- Show all templates, including secure ones
-	- `python3 ace_analyzer.py --show-all <CERT-TEMPLATE-DUMP>.json`
-- Quick Scan which only shows detected vulnerabilities
-	- `python3 ace_analyzer.py -q <CERT-TEMPLATE-DUMP>.json`
+A Python tool for assessing Active Directory Certificate Services (AD CS) security. It parses output from **Certipy**, **Certify**, **Certify 2.0**, **BloodHound / ADExplorerSnapshot.py**, and raw PowerShell ACE exports, then detects ESC1–ESC16 privilege-escalation misconfigurations.
 
-# Quick Summary of dangerous ESC configurations and Remediation
-## ESC1 - Subject Alternative Name Specification
-- Template allows users to specify any identity in certificate
-  
-**Requirements for ESC1**:  
-- Enrollment rights for low-privileged users
-- ENROLLEE_SUPPLIES_SUBJECT flag enabled
-- Client Authentication EKU
-- Manager Approval disabled
-  
-**Why it's dangerous**
-- User can request certificate as Domain Admin
-  
-**Attack Chain:** 
-- User -> Request cert as DA -> Authenticate -> Full domain compromise
+---
 
-## ESC2 - Any Purpose EKU abuse
-- Certificate can be used for any purpose
-  
-**Requirements for ESC2:**
-- Template has "Any Purpose" EKU (OID 2.5.29.37.0) or no EKU
-- Manager approval disabled
-- Low-privileged users can enroll
-  
-**Why it's dangerous:**
-- Certificate can be used for any purpose, including as an enrollment agent to request certificates on behalf of others.
-  
-**Attack Chain:**
-- User -> Get Any Purpose cert -> Use as enrollment agent -> Request DA cert -> Domain compromise
+## Requirements
 
-## ESC3 - Certificate Request Agent abuse 
-- Allows requesting certificates on behalf of other users without authorization
+- Python 3.6 or above — no additional packages required
+- Clone: `git clone https://github.com/vianic/ace_analyzer.git`
 
-**Requirements for ESC3:**
-- Template has Certificate Request Agent EKU (OID 1.3.6.1.4.1.311.20.2.1)
-- Manager approval disabled
-- Low-privileged users cna enroll
-  
-**Why it's dangerous:**
-- Allows requesting certificates on behalf of other users without proper authorization.
-  
-**Attack Chain:**
-- User -> Get enrollment agent cert -> Request cert for DA -> Authenticate as DA -> Domain compromise
+---
 
-## ESC4 - Allowed Template Modification
-- Low-privileged users can modify template settings
+## Usage
 
-**Requirements for ESC4:**
-- Low-privileged principals have WriteProperty, WriteDacl, WriteOwner, or GenericAll
-- On certificate template objects
-
-**Why it's dangerous:**
-- Attacker can enable ESC1/ESC2/ESC3 conditions and escalate to Domain Admin
-
-**Attack Chain:**
-- Low-privileged user -> Modify template -> Enable ESC1 -> Request admin certificate -> Domain compromise
-
-## ESC5 - PKI Object Access Control
-- Manipulation of PKI infrastructure
-
-**Requirements for ESC5:**
-- The CA server’s AD computer object (i.e., compromise through S4U2Self or S4U2Proxy)
-- The CA server’s RPC/DCOM server
-- Any descendant AD object or container in the container ```CN=Public Key Services,CN=Services,CN=Configuration,DC=<COMPANY>,DC=<COM>``` (e.g., the Certificate Templates container, Certification Authorities container, the NTAuthCertificates object, the Enrollment Services Container, etc.)
-
-**Why it's dangerous:**
-- Allows manipulation of core PKI infrastructure, potentially adding rogue CAs.
-
-**Attack Chain (Golden Cert):**
-- User -> Compromise CA server (RBCD/Shadow Credentials) -> Gain local admin -> Extract CA private key -> Forge certificate for DA -> Authenticate as DA -> Domain control
-
-**Attack Chain (Rogue CA):**
-- User with WriteDACL on PKI objects -> Modify NTAuthCertificates -> Add rogue CA -> Issue certificates as any user -> Authenticate as DA -> Domain control
-
-**Attack Chain (Machine Account Takeover):** 
-- User with write access to CA computer object -> RBCD/Shadow Credentials attack -> Compromise CA server -> Backup CA private key -> Forge Golden Certificate -> Authenticate as DA -> Domain control
-
-## ESC6 - EDITF_ATTRIBUTESUBJECTALTNAME2 Flag
-SAN specification making "secure" templates vulnerable
-
-**Requirements for ESC6:**
-- EDITF_ATTRIBUTESUBJECTALTNAME2 flag enabled on Certificate Authority
-- At least one template that allows low-privileged user enrollment
-- Template allows client authentication (for domain authentication)
-- Manager approval disabled
-
-**Why it's dangerous:**
-- Even "secure" templates become vulnerable to SAN specification attacks.
-
-**Attack Chain:**
-- User -> Request cert from any template -> Add SAN for DA -> Authenticate as DA -> Domain control
-
-## ESC7 - Vulnerable CA Access Control
-Modifying CA settings is allowed
-
-**Requirements for ESC7:**
-- Low-privileged user has ManageCA or ManageCertificates permissions on CA object
-- ManageCA allows: modifying CA settings, enabling EDITF_ATTRIBUTESUBJECTALTNAME2, adding Certificate Officers
-- ManageCertificates allows: approving pending certificate requests
-- At least one template available for enrollment with client authentication
-
-**Why it's dangerous:**
-- Allows modifying CA settings, enabling dangerous flags, or approving pending certificates.
-
-**Attack Chain:**
-- User -> Modify CA settings -> Enable ESC6 -> Exploit any template -> Domain control
-
-## ESC 8 - NTLM Relay to Web Enrollment
-**Requirements for ESC8:**
-- Web enrollment interface enabled (HTTP endpoint)
-- HTTP endpoint does NOT enforce HTTPS
-- HTTP endpoint does NOT enforce Extended Protection for Authentication (EPA)
-- NTLM authentication accepted on web enrollment endpoint
-- At least one certificate template allows domain computer/user enrollment and client authentication
-- Ability to coerce victim authentication (PetitPotam, PrinterBug, etc.)
-
-**Why it's dangerous:**
-- NTLM relay attacks can capture authentication and request certificates as the victim.
-
-**Attack Chain:**
-- Attacker -> Relay NTLM -> Request cert as victim -> Authenticate as victim
-
-# Gathering Data
-## ADExplorer.exe Snapshot (BloodHound)
-- Using ADExplorer.exe it is possible to perfom a snapshot of connected domains
-- Take a snapshot via PowerShell or GUI:
-	- `ADExplorer.exe -snapshot "" <SNAPSHOT-OUTPUT>.dat`
-- Convert to BloodHound format with ``ADExplorerSnapshot.py``
-	- `python3 ADExplorerSnapshot.py snapshot.dat -o /<PATH-TO>/<OUTPUT_DIRECTORY>/<OUTPUT>.txt -m BloodHound`
-- **Advantages**:
-	- Contains template properties (ESC1 detection)
-	- Includes all templates in domain
-	- Compatible with BloodHound for visualization
-	- Best for comprehensive analysis
-
-## ADExplorer.exe Snapshot (NDJSON Format)
-- Using ADExplorer.exe it is possible to perfom a snapshot of connected domains
-- Take a snapshot via PowerShell or GUI:
-	- `ADExplorer.exe -snapshot "" <SNAPSHOT-OUTPUT>.dat`
-- Convert to BloodHound format with ``ADExplorerSnapshot.py``
-	- `python3 ADExplorerSnapshot.py snapshot.dat -o /<PATH-TO>/<OUTPUT_DIRECTORY>/<OUTPUT>.txt -m Objects`
-- **Advantages**:
-	- Complete AD object dump
-	- Useful for custom processing
-	- Can analyze non-template objects too
-- **Disadvantages**:
-	- Larger file size
-	- Requires parsing nTSecurityDescriptor
-	- Currently limited ACE extraction
-
-## Certipy/Certify
-- Either gather all certificate templates or just enumerate vulnerable templates:
-	- `certipy find [-vulnerable] -u <USER> -p <PASSWORD> -dc-ip <DC_IP>`
-	- `Certify.exe find [/ca:<FQDN-SERVER>\<CA-NAME>] [/domain:<DOMAIN>.local] [/path:CN=Configuration,DC=<DOMAIN>,DC=local] [/quiet]`
-- **Advantages**:
-	- Quick online enumeration
-	- Includes vulnerability assessment
-	- Template properties included
-- **Disadvantages**:
-	- Requires domain credentials
-	- Online tool (may be detected)
-
-## Raw ACE Array
-- Manual LDAP query
-- PowerShell export
-	- `$templates = Get-ADObject -SearchBase "CN=Certificate Templates,..." -Filter {objectClass -eq "pKICertificateTemplate"} -Properties nTSecurityDescriptor`
-	```bash
-	  $template = Get-ADObject -Filter {cn -eq "TemplateName"} -Properties nTSecurityDescriptor
-	$template.nTSecurityDescriptor.Access | ConvertTo-Json > aces.json
- 	```
-- **Advantages**:
-	- Simple format
-	- Easy to generate manually
-	- No tool dependencies
-- **Disadvantages**:
-	- No template properties
-	- Single template only
-	- No automatic ESC1 detection
-
-# Format Guide 
-- ace_analyzer automatically detects the format of the provided data.
-- There is no need to specify the format manually
 ```
-[*] Loading data from: input.json
-[*] Detected BloodHound JSON format
-[*] Found 15 certificate template(s)
-
-[*] Loading data from: input.json
-[*] Found 65 ACE entries
+python3 ace_analyzer_v3.py [options] <input-file>
 ```
 
-## ADExplorer Dump
-### BloodHound
-```json
-{
-  "meta": {
-    "type": "certtemplates",
-    "count": 5,
-    "version": 5
-  },
-  "data": [
-    {
-      "Properties": {
-        "name": "WebServer@CONTOSO.LOCAL",
-        "enabled": true,
-        "enrolleesuppliessubject": false,
-        "clientauthentication": true,
-        "requiresmanagerapproval": true,
-        "type": "Certificate Template"
-      },
-      "Aces": [
-        {
-          "PrincipalSID": "S-1-5-21-...-512",
-          "PrincipalType": "Group",
-          "RightName": "Enroll"
-        }
-      ]
-    }
-  ]
+| Flag | Description |
+|------|-------------|
+| `<file>` | Input file (JSON, plaintext, or raw ACE array — format auto-detected) |
+| `-q / --quiet` | Only print vulnerability findings, suppress the ACL detail table |
+| `--show-all` | Show every template, including ones with no findings |
+| `-o FILE` | Write a clean (no ANSI colour) copy of the report to FILE (default: `ace_analyzer_output.log`) |
+
+### Examples
+
+```bash
+# Scan Certipy JSON output for all vulnerabilities
+python3 ace_analyzer_v3.py certipy_output.json
+
+# Scan Certify plaintext output, only show findings
+python3 ace_analyzer_v3.py -q certify_find.txt
+
+# Scan BloodHound dump — show every template including secure ones
+python3 ace_analyzer_v3.py --show-all bloodhound_certtemplates.json
+
+# Scan and save a clean report
+python3 ace_analyzer_v3.py certipy_output.json -o report_$(date +%F).log
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | No vulnerabilities found |
+| `1` | Non-critical findings only (ESC9, ESC10, ESC13, ESC16) |
+| `2` | Critical vulnerability found (ESC1–4, ESC6, ESC7, ESC11, ESC15) |
+
+---
+
+## Supported Input Formats
+
+The tool auto-detects the format — no flag needed.
+
+| Format | Detected by | Source |
+|--------|-------------|--------|
+| **Certipy JSON** | Top-level `Certificate Templates` / `Certificate Authorities` keys | `certipy find -json` |
+| **Certify / Certify 2.0 plaintext** | Lines matching `CA Name :` or `Template Name :` before any JSON structure | `Certify.exe find` or `enum-cas` / `enum-templates` |
+| **BloodHound JSON** | Top-level `meta` + `data` keys | ADExplorerSnapshot.py `-m BloodHound` |
+| **Raw ACE array** | JSON array with `PrincipalSID` + `RightName` fields | PowerShell `nTSecurityDescriptor` export |
+| **NDJSON** | Multiple `{…}` objects, one per line | ADExplorerSnapshot.py `-m Objects` (not fully parsed — convert first) |
+
+---
+
+## Enumeration Guide
+
+Pick **one** of the following methods to generate input for the tool. Certipy JSON gives the widest ESC coverage. Certify plaintext is useful when Python is unavailable on the attack host. BloodHound is best for large environments where you also want visual graph queries.
+
+---
+
+### Method 1 — Certipy (recommended)
+
+**Requires:** Domain credentials, network access to DC and CA. Python on attack host.
+
+```bash
+pip install certipy-ad
+```
+
+#### Option A: JSON output (best coverage — detects ESC1–16)
+
+```bash
+certipy find -u 'user@domain.local' -p 'Password123' -dc-ip 10.0.0.1 -json
+# Produces: <timestamp>_Certipy.json
+```
+
+```bash
+python3 ace_analyzer_v3.py 20240101_120000_Certipy.json
+```
+
+#### Option B: Only enumerate vulnerable templates (faster, fewer results)
+
+```bash
+certipy find -u 'user@domain.local' -p 'Password123' -dc-ip 10.0.0.1 -json -vulnerable
+# Produces smaller JSON with only flagged templates
+```
+
+```bash
+python3 ace_analyzer_v3.py -q 20240101_120000_Certipy.json
+```
+
+#### Option C: BloodHound export (for graph queries + ace_analyzer)
+
+```bash
+certipy find -u 'user@domain.local' -p 'Password123' -dc-ip 10.0.0.1 -bloodhound
+# Produces: <timestamp>_Certipy.zip  (contains *_certtemplates.json, *_cas.json, etc.)
+```
+
+Unzip, then run on the cert-templates file:
+
+```bash
+unzip 20240101_120000_Certipy.zip
+python3 ace_analyzer_v3.py 20240101_120000_certtemplates.json
+```
+
+> **OPSEC note:** Certipy issues LDAP queries to the DC. These are not inherently suspicious but will appear in DC logs. Use `-timeout` and avoid `-vulnerable` scans if stealth matters — they generate fewer LDAP calls.
+
+#### Certipy with alternative authentication
+
+```bash
+# Pass-the-hash
+certipy find -u 'user@domain.local' -hashes ':ntlmhash' -dc-ip 10.0.0.1 -json
+
+# Kerberos ticket (ccache)
+KRB5CCNAME=/tmp/user.ccache certipy find -u 'user@domain.local' -k -dc-ip 10.0.0.1 -json
+
+# LDAPS (port 636)
+certipy find -u 'user@domain.local' -p 'Password123' -dc-ip 10.0.0.1 -json -ldap-scheme ldaps
+```
+
+---
+
+### Method 2 — Certify (GhostPack, Windows host)
+
+**Requires:** Domain-joined Windows host (or `runas /netonly`), .NET 4.0+. No Python needed on the attack host.
+
+**Certify v1** uses a `find` command. **Certify 2.0** uses `enum-cas` and `enum-templates`.
+
+#### Certify v1 — enumerate all templates
+
+```cmd
+Certify.exe find /outfile:certify_all.txt
+```
+
+#### Certify v1 — only vulnerable templates (faster)
+
+```cmd
+Certify.exe find /vulnerable /outfile:certify_vuln.txt
+```
+
+#### Certify v1 — scope to a specific CA or domain
+
+```cmd
+Certify.exe find /ca:dc01.domain.local\DOMAIN-CA /outfile:certify_ca.txt
+Certify.exe find /domain:child.domain.local /outfile:certify_child.txt
+```
+
+Transfer `certify_*.txt` to the analysis host, then:
+
+```bash
+python3 ace_analyzer_v3.py certify_all.txt
+python3 ace_analyzer_v3.py -q certify_vuln.txt
+```
+
+---
+
+### Method 3 — Certify 2.0 (GhostPack, Windows host)
+
+Certify 2.0 splits enumeration into separate commands with expanded output fields (`Schema Version`, `Certificate Issuance Policies`, `RPC Request Encryption`, `Disabled Extensions`, `No Security Extension`).
+
+#### Enumerate Certificate Authorities
+
+```cmd
+Certify.exe enum-cas /outfile:certify2_cas.txt
+```
+
+#### Enumerate certificate templates
+
+```cmd
+Certify.exe enum-templates /outfile:certify2_templates.txt
+```
+
+#### Enumerate only vulnerable templates
+
+```cmd
+Certify.exe enum-templates /vulnerable /outfile:certify2_vuln.txt
+```
+
+#### Enumerate PKI objects (ESC5 investigation)
+
+```cmd
+Certify.exe enum-pkiobjects /outfile:certify2_pki.txt
+```
+
+Transfer output files to the analysis host, then:
+
+```bash
+# Analyse CAs
+python3 ace_analyzer_v3.py certify2_cas.txt
+
+# Analyse templates
+python3 ace_analyzer_v3.py certify2_templates.txt
+
+# Combined: run both and merge the findings manually
+python3 ace_analyzer_v3.py certify2_cas.txt -o report_cas.log
+python3 ace_analyzer_v3.py certify2_templates.txt -o report_templates.log
+```
+
+> **Note:** Certify 2.0 output files containing only CA blocks or only template blocks are both supported. If a file has both, the parser handles them in a single pass.
+
+---
+
+### Method 4 — ADExplorer + ADExplorerSnapshot.py (offline / no network to CA)
+
+**Requires:** ADExplorer.exe (Sysinternals) on a domain-joined host to take the snapshot. ADExplorerSnapshot.py on the analysis host to convert it.
+
+This is the best approach when you want **no live queries to the CA** after the initial snapshot — the snapshot is taken offline from a single LDAP session to the DC.
+
+#### Step 1 — Take a snapshot (on domain-joined Windows host)
+
+```cmd
+# GUI: run ADExplorer.exe, connect to DC, File > Create Snapshot
+# CLI:
+ADExplorer.exe -snapshot "" snapshot.dat
+ADExplorer.exe -snapshot "ldap://dc01.domain.local" snapshot.dat
+```
+
+#### Step 2 — Convert to BloodHound JSON (on analysis host)
+
+```bash
+pip install impacket
+git clone https://github.com/c3c/ADExplorerSnapshot.py
+cd ADExplorerSnapshot.py
+
+# BloodHound format — best for ace_analyzer (contains template properties)
+python3 ADExplorerSnapshot.py snapshot.dat -o ./output/ -m BloodHound
+
+# Objects/NDJSON format — complete AD dump (not fully parsed by ace_analyzer)
+python3 ADExplorerSnapshot.py snapshot.dat -o ./output/ -m Objects
+```
+
+#### Step 3 — Run ace_analyzer on the cert-templates file
+
+```bash
+# The BloodHound output directory will contain files like:
+#   20240101120000_certtemplates.json
+#   20240101120000_cas.json
+#   20240101120000_users.json   (ignored by ace_analyzer)
+
+python3 ace_analyzer_v3.py output/20240101120000_certtemplates.json
+```
+
+> **Tip:** If both `*_certtemplates.json` and `*_cas.json` are available, run the tool on both files separately to get CA-level findings (ESC6, ESC7, ESC8, ESC11, ESC16).
+
+---
+
+### Method 5 — Raw PowerShell ACE Export
+
+**Requires:** PowerShell with AD module on a domain-joined host.
+
+This is the most manual method and gives **ACL data only** — template properties like EKUs and enrollment flags are not exported, so ESC1/2/3/9/15 cannot be detected. Only ESC4 (ACL analysis) is available.
+
+#### Export ACEs for a single template
+
+```powershell
+$template = Get-ADObject `
+    -SearchBase "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=domain,DC=local" `
+    -Filter {cn -eq "TemplateName"} `
+    -Properties nTSecurityDescriptor
+
+$template.nTSecurityDescriptor.Access | Select-Object `
+    @{N="PrincipalSID";  E={$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value}},
+    @{N="PrincipalType"; E={"Unknown"}},
+    @{N="RightName";     E={$_.ActiveDirectoryRights.ToString()}},
+    @{N="IsInherited";   E={$_.IsInherited}} |
+ConvertTo-Json -Depth 3 > TemplateName_aces.json
+```
+
+#### Export ACEs for all cert templates
+
+```powershell
+$base = "CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=domain,DC=local"
+$templates = Get-ADObject -SearchBase $base `
+    -Filter {objectClass -eq "pKICertificateTemplate"} `
+    -Properties nTSecurityDescriptor
+
+foreach ($t in $templates) {
+    $t.nTSecurityDescriptor.Access | Select-Object `
+        @{N="PrincipalSID";  E={$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value}},
+        @{N="PrincipalType"; E={"Unknown"}},
+        @{N="RightName";     E={$_.ActiveDirectoryRights.ToString()}},
+        @{N="IsInherited";   E={$_.IsInherited}} |
+    ConvertTo-Json -Depth 3 > "$($t.Name)_aces.json"
 }
 ```
 
-### NDJSON File
-```json
-{"objectClass":["top","pKICertificateTemplate"],"cn":["WebServer"],"distinguishedName":["CN=WebServer,CN=Certificate Templates,CN=Public Key Services,CN=Services,CN=Configuration,DC=contoso,DC=local"],"nTSecurityDescriptor":{...}}
-{"objectClass":["top","user"],"sAMAccountName":["admin"],...}
+```bash
+python3 ace_analyzer_v3.py TemplateName_aces.json
 ```
 
-## certipy/Certify
+---
+
+## ESC Coverage per Input Method
+
+| ESC | Certipy JSON | Certify text | BloodHound JSON | Raw ACE |
+|-----|:---:|:---:|:---:|:---:|
+| ESC1 — Enrollee Supplies Subject | ✓ | ✓ | ✓ | — |
+| ESC2 — Any Purpose EKU | ✓ | ✓ | ✓ | — |
+| ESC3 — Certificate Request Agent | ✓ | ✓ | ✓ | — |
+| ESC4 — Vulnerable Template ACL | ✓ | ✓ | ✓ | ✓ |
+| ESC5 — Vulnerable PKI Object ACL | note | note | note | — |
+| ESC6 — EDITF_ATTRIBUTESUBJECTALTNAME2 | ✓ | ✓ | ✓ | — |
+| ESC7 — Vulnerable CA ACL | ✓ | ✓ | ✓ | — |
+| ESC8 — NTLM Relay to Web Enrollment | ✓ | ✓ | ✓ | — |
+| ESC9 — No Security Extension (template) | ✓ | ✓ | ✓ | — |
+| ESC10 — Weak Certificate Mapping | partial | partial | — | — |
+| ESC11 — CA RPC Without Encryption | ✓ | ✓ | ✓ | — |
+| ESC12 — TPM Attestation Bypass | note | note | note | — |
+| ESC13 — OID Group Link | ✓ | ✓ | ✓ | — |
+| ESC15 — Schema v1 Arbitrary EKU | ✓ | ✓ | ✓ | — |
+| ESC16 — CA SID Extension Disabled | ✓ | ✓ | ✓ | — |
+
+**Legend:** ✓ = detected, — = not detectable from this format, note = informational note printed (manual verification required)
+
+> ESC4 in raw ACE format: `WriteProperty` alone is flagged as **HIGH (verify)** rather than CRITICAL because PowerShell ACEs can scope `WriteProperty` to a single attribute. Use Certipy or Certify for confirmation.
+
+---
+
+## ESC Vulnerability Reference
+
+### ESC1 — Subject Alternative Name Specification
+
+**Requirements:** Enrollee Supplies Subject flag enabled · Client Authentication EKU · Low-priv users can enroll · Manager approval disabled
+
+**Impact:** Any low-privileged user can request a certificate for any identity (e.g. Domain Admin), then authenticate with it.
+
+**Attack chain:** Low-priv user → request cert with DA SAN → authenticate as DA → domain compromise
+
+---
+
+### ESC2 — Any Purpose EKU
+
+**Requirements:** Template has Any Purpose EKU (`2.5.29.37.0`) or no EKU at all · Low-priv enrollment · No approval
+
+**Impact:** Certificate can be used as an enrollment agent to request certificates on behalf of other users.
+
+**Attack chain:** User → obtain Any Purpose cert → enroll on behalf of DA → authenticate as DA → domain compromise
+
+---
+
+### ESC3 — Certificate Request Agent
+
+**Requirements:** Certificate Request Agent EKU (`1.3.6.1.4.1.311.20.2.1`) · Low-priv enrollment · No approval
+
+**Impact:** Allows requesting certificates on behalf of other users without explicit per-user authorisation.
+
+**Attack chain:** User → get enrollment agent cert → request DA cert → authenticate as DA → domain compromise
+
+---
+
+### ESC4 — Vulnerable Template ACL
+
+**Requirements:** Low-privileged principal has `GenericAll`, `GenericWrite`, `WriteDacl`, `WriteOwner`, or `WriteProperty` on the template object
+
+**Impact:** Attacker modifies the template (e.g. enables Enrollee Supplies Subject) to create an ESC1 condition.
+
+**Attack chain:** Low-priv user → modify template to enable ESC1 → request cert as DA → domain compromise
+
+---
+
+### ESC5 — Vulnerable PKI Object ACL
+
+**Requirements:** Write access to the CA computer object, `NTAuthCertificates`, or the Enrollment Services container in `CN=Public Key Services`
+
+**Impact:** Allows adding rogue CAs, extracting the CA private key via RBCD/Shadow Credentials, or forging certificates.
+
+> Detection requires checking CA computer object ACLs and PKI container objects not present in standard cert template dumps. Use BloodHound CE or `certipy find -vulnerable` for full analysis.
+
+---
+
+### ESC6 — EDITF_ATTRIBUTESUBJECTALTNAME2
+
+**Requirements:** CA has `EDITF_ATTRIBUTESUBJECTALTNAME2` flag set · At least one enrollable template with Client Authentication EKU
+
+**Impact:** Even "safe" templates become vulnerable — any certificate request can include an arbitrary SAN.
+
+**Attack chain:** User → request cert from any template + add DA SAN → authenticate as DA → domain compromise
+
+---
+
+### ESC7 — Vulnerable CA ACL
+
+**Requirements:** Low-priv user has `ManageCA` or `ManageCertificates` on the CA object
+
+**Impact:** `ManageCA` lets the attacker enable `EDITF_ATTRIBUTESUBJECTALTNAME2` (→ ESC6) or add themselves as a Certificate Officer. `ManageCertificates` lets them approve pending requests.
+
+**Attack chain:** User → set ManageCA → enable ESC6 → exploit any template → domain compromise
+
+---
+
+### ESC8 — NTLM Relay to Web Enrollment
+
+**Requirements:** Web enrollment interface (`/certsrv/`) active over HTTP · No Extended Protection for Authentication (EPA) · Ability to coerce authentication (PetitPotam, PrinterBug, etc.)
+
+**Impact:** NTLM relay to the web enrollment endpoint to request a certificate as the relayed account (e.g. a domain controller).
+
+**Attack chain:** Attacker → coerce DC auth → relay to certsrv → request DC cert → DCSync
+
+---
+
+### ESC9 — No Security Extension (Template-Level)
+
+**Requirements:** `CT_FLAG_NO_SECURITY_EXTENSION` (0x80000) set in `msPKI-Enrollment-Flag` · Low-priv enrollment · `StrongCertificateBindingEnforcement` < 2 on DCs · Attacker has `GenericWrite` over target user
+
+**Impact:** Certificates lack the `szOID_NTDS_CA_SECURITY_EXT` SID binding. Attacker changes the target's UPN, enrolls a cert in the target's name, restores the UPN, and authenticates as the target.
+
+---
+
+### ESC10 — Weak Certificate Mapping (Domain-Level)
+
+**Requirements:** `StrongCertificateBindingEnforcement` = 0 (disabled) or = 1 (compatibility) on domain controllers
+
+**Impact:** Unlike ESC9 (per-template), ESC10 affects the entire domain. Certificates without SID binding (from any CA or template) can be used for impersonation.
+
+> Detection requires DC registry values not always present in enumeration output. Use `certipy find` with sufficient privileges for reliable ESC10 detection.
+
+---
+
+### ESC11 — CA RPC Without Encryption
+
+**Requirements:** CA does not have `IF_ENFORCEENCRYPTICERTREQUEST` set · Ability to coerce NTLM auth
+
+**Impact:** NTLM relay to the MS-ICPR RPC interface (`ncacn_ip_tcp`) instead of the HTTP web enrollment endpoint. No HTTPS involved.
+
+**Attack chain:** Attacker → coerce DC auth (PetitPotam) → relay to CA RPC → request DC certificate → DCSync
+
+---
+
+### ESC12 — TPM Attestation Bypass
+
+**Requirements:** CA uses Microsoft Platform Crypto Provider without proper TPM attestation validation
+
+**Impact:** Attacker can request certificates that are supposed to be tied to a TPM-protected key without a TPM.
+
+> Detection requires inspecting CA server configuration. Not detectable from LDAP-based enumeration output.
+
+---
+
+### ESC13 — OID Group Link (Issuance Policy)
+
+**Requirements:** Template has an issuance policy OID · That OID links to an AD security group in `CN=OID,CN=Public Key Services` · Low-priv enrollment · Client Authentication EKU
+
+**Impact:** Certificate holder gains effective membership of the linked group. If the group is privileged, this escalates directly.
+
+**Attack chain:** User → enroll in template with linked policy OID → Windows grants group membership → privilege escalation
+
+> The OID-to-group mapping must be verified manually by reading `CN=OID,CN=Public Key Services,CN=Services,CN=Configuration`.
+
+---
+
+### ESC15 — Schema Version 1 Arbitrary EKU (EKUwu / CVE-2024-49019)
+
+**Requirements:** Template `msPKI-Template-Schema-Version` = 1 · Low-priv enrollment · No approval · No authorized signatures required
+
+**Impact:** Schema v1 templates do not enforce or override the Application Policy (EKU) from the CSR. Attacker submits a CSR with Client Authentication EKU even if the template does not grant it. Patched November 2024 — apply patches.
+
+**Attack chain:** User → craft CSR with Client Auth EKU → enroll in schema v1 template → receive cert with Client Auth → authenticate as any SAN identity
+
+---
+
+### ESC16 — CA-Level SID Extension Disabled
+
+**Requirements:** CA has `szOID_NTDS_CA_SECURITY_EXT` (`1.3.6.1.4.1.311.25.2`) in its `DisableExtensionList` · `StrongCertificateBindingEnforcement` < 2 on DCs
+
+**Impact:** CA-wide version of ESC9. Every certificate from this CA lacks SID binding, making all of them usable for impersonation when DC mapping is weak.
+
+**Attack chain:** Same as ESC9, but no specific template is required — any certificate from this CA is affected.
+
+---
+
+## Format Reference
+
+### Certipy JSON structure
+
 ```json
 {
   "Certificate Authorities": {
     "0": {
       "CA Name": "CONTOSO-CA",
-      "DNS Name": "dc.contoso.local"
+      "DNS Name": "dc.contoso.local",
+      "Web Enrollment": {"HTTP": false, "HTTPS": false, "Channel Binding": false},
+      "User Specified SAN": false,
+      "Enforce Encryption for Requests": true,
+      "No Security Extension": false,
+      "Permissions": {
+        "Owner": "CONTOSO.LOCAL\\Administrators",
+        "Access Rights": {
+          "ManageCa":            ["CONTOSO.LOCAL\\Administrators"],
+          "ManageCertificates":  ["CONTOSO.LOCAL\\Administrators"],
+          "Enroll":              ["CONTOSO.LOCAL\\Authenticated Users"]
+        }
+      }
     }
   },
   "Certificate Templates": {
     "0": {
-      "Template Name": "WebServer",
-      "Display Name": "Web Server",
-      "Certificate Authorities": ["CONTOSO-CA"],
+      "Template Name": "VulnerableTemplate",
       "Enabled": true,
       "Client Authentication": true,
-      "Enrollment Rights": [
-        "CONTOSO.LOCAL\\Domain Users"
-      ],
+      "Enrollee Supplies Subject": true,
+      "Requires Manager Approval": false,
+      "Authorized Signatures Required": 0,
+      "Schema Version": 1,
+      "No Security Extension": false,
+      "Enrollment Flag": ["AutoEnrollment"],
+      "Certificate Name Flag": ["EnrolleeSuppliesSubject"],
+      "Extended Key Usage": ["Client Authentication"],
+      "Any Purpose": false,
+      "Issuance Policies": [],
+      "Permissions": {
+        "Enrollment Permissions": {
+          "Enrollment Rights":   ["CONTOSO.LOCAL\\Domain Users"],
+          "All Extended Rights": ["CONTOSO.LOCAL\\Authenticated Users"]
+        },
+        "Object Control Permissions": {
+          "Owner":                   "CONTOSO.LOCAL\\Enterprise Admins",
+          "Write Dacl Principals":   ["CONTOSO.LOCAL\\Domain Users"],
+          "Write Owner Principals":  [],
+          "Write Property Principals": []
+        }
+      },
       "[!] Vulnerabilities": {
-        "ESC1": "..."
+        "ESC1": "Enrollee supplies subject and template allows client authentication"
       }
     }
   }
 }
 ```
 
-## RAW ACE Array
+> Certipy v5.x emits `"Enrollment Flag"` and `"Certificate Name Flag"` as **integer arrays** (`[32, 524288]`) rather than string arrays. Both are handled automatically.
+
+---
+
+### Certify / Certify 2.0 plaintext structure
+
+```
+    CA Name                               : CONTOSO\CONTOSO-CA
+    DNS Name                              : dc.contoso.local
+    Web Enrollment                        : Enabled (HTTP)
+    User Specified SAN                    : Disabled
+    Enforce Encryption for Requests       : Disabled
+    Permissions
+      ManageCa                            : CONTOSO.LOCAL\Domain Admins   S-1-5-21-111-222-333-512
+      Enrollment Rights                   : CONTOSO.LOCAL\Authenticated Users  S-1-5-11
+    [!] Vulnerabilities
+      ESC11                               : RPC endpoint does not enforce encryption
+
+    Template Name                         : VulnerableTemplate
+    Enabled                               : True
+    Client Authentication                 : True
+    Enrollee Supplies Subject             : True
+    Certificate Name Flag                 : EnrolleeSuppliesSubject
+    Enrollment Flag                       : AutoEnrollment
+    Schema Version                        : 1
+    Extended Key Usage                    : Client Authentication
+    Requires Manager Approval             : False
+    Authorized Signatures Required        : 0
+    Certificate Issuance Policies         : 1.3.6.1.4.1.311.21.8.12345
+    Permissions
+      Enrollment Permissions
+        Enrollment Rights                 : NT AUTHORITY\Authenticated Users  S-1-5-11
+      Object Control Permissions
+        Owner                             : CONTOSO.LOCAL\Enterprise Admins   S-1-5-21-111-222-333-519
+        WriteDacl Principals              : NT AUTHORITY\Authenticated Users  S-1-5-11
+    [!] Vulnerabilities
+      ESC1                                : Enrollee supplies subject, client auth EKU, low-priv enrollment
+      ESC4                                : Authenticated Users has dangerous permissions
+```
+
+> Certify 2.0 uses `enum-cas` / `enum-templates` instead of `find`. The output format is identical — the tool detects both.
+
+---
+
+### BloodHound JSON structure
+
+```json
+{
+  "meta": {"type": "certtemplates", "count": 1, "version": 5},
+  "data": [
+    {
+      "Properties": {
+        "name": "VulnerableTemplate@CONTOSO.LOCAL",
+        "enabled": true,
+        "enrolleesuppliessubject": true,
+        "clientauthentication": true,
+        "requiresmanagerapproval": false,
+        "authorizedsignatures": 0,
+        "schemaversion": 1,
+        "nosecurityextension": false,
+        "ekus": ["1.3.6.1.5.5.7.3.2"],
+        "type": "Certificate Template"
+      },
+      "Aces": [
+        {"PrincipalSID": "S-1-5-11",             "PrincipalType": "Group", "RightName": "Enroll"},
+        {"PrincipalSID": "S-1-5-21-111-222-333-513", "PrincipalType": "Group", "RightName": "Enroll"},
+        {"PrincipalSID": "S-1-5-11",             "PrincipalType": "Group", "RightName": "WriteDacl"}
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### Raw ACE array structure
+
 ```json
 [
   {
-    "PrincipalSID": "S-1-5-21-1234567890-1234567890-1234567890-512",
+    "PrincipalSID":  "S-1-5-21-111-222-333-513",
     "PrincipalType": "Group",
-    "RightName": "Enroll",
-    "IsInherited": false
+    "RightName":     "Enroll",
+    "IsInherited":   false
   },
   {
-    "PrincipalSID": "S-1-5-11",
+    "PrincipalSID":  "S-1-5-11",
     "PrincipalType": "Group",
-    "RightName": "WriteProperty",
-    "IsInherited": false
+    "RightName":     "WriteProperty",
+    "IsInherited":   false
   }
 ]
 ```
 
-## Converting between Formats
-- BloodHound to Raw ACEs
-	- `jq '.data[0].Aces' bloodhound.json > aces.json`
-- Certipy → BloodHound
-	- `certipy find -u user@domain -p pass -dc-ip 10.0.0.1 -bloodhound`
-- PowerShell → Raw ACEs
-```powershell
-$templates = Get-ADObject -SearchBase "CN=Certificate Templates,..." `
-    -Filter {objectClass -eq "pKICertificateTemplate"} `
-    -Properties nTSecurityDescriptor
+> Raw ACE format does not contain template properties. Only ESC4 (ACL analysis) is detectable.
 
-foreach ($template in $templates) {
-    $aces = @()
-    foreach ($ace in $template.nTSecurityDescriptor.Access) {
-        $aces += @{
-            PrincipalSID = $ace.IdentityReference.Value
-            PrincipalType = "Unknown"
-            RightName = $ace.ActiveDirectoryRights
-            IsInherited = $ace.IsInherited
-        }
-    }
-    $aces | ConvertTo-Json > "$($template.Name)_aces.json"
-}
-```
+---
 
-# General Troubleshooting / Frequently Made Mistakes (FMM)
-- "No valid ACE data found"
-	- File format may not be supported. Check for validity:
-		- `jq . template.json`
-	- Does it contain ACE data with PrincipalSID and RightName fields?
-- "BloodHound format but no templates"
-	- The file may be for a different object type (users, computers, etc.)
-	- Make sure that the input file is something like `*_certtemplates.json`
-- Script runs but shows no output:
-	- Template might be properly secured. Use `--show-all` to see all templates:
-		- `python3 ace_analyzer.py --show-all template.json`
+## Troubleshooting
 
-# Performance Considerations
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| `No valid ACE data found` | Unsupported or malformed file | Validate with `jq . file.json`; check it has `PrincipalSID` and `RightName` fields |
+| `BloodHound format but no templates` | File is for users/computers, not cert templates | Use the `*_certtemplates.json` file from the ADExplorerSnapshot.py output |
+| No findings on any template | Templates are properly secured | Use `--show-all` to print all templates and verify data was parsed |
+| Certify text: no templates parsed | File has unusual indentation or header format | Open the file and confirm `Template Name   :` lines are present |
+| False-positive ESC4 (raw format) | `WriteProperty` may be scoped to one attribute | Verify with `certipy find` or BloodHound — the tool labels these as HIGH (verify) |
+| ESC10 not detected | DC registry values not in enumeration output | Run `certipy find` with elevated privileges or check DC registry manually |
 
-| Format          | File Size (typical) | Parse Time | Memory Usage |
-| --------------- | ------------------- | ---------- | ------------ |
-| BloodHound JSON | 10KB - 5MB          | < 1s       | Low          |
-| NDJSON          | 100MB - 5GB         | 2-30s      | Medium       |
-| Certipy JSON    | 50KB - 10MB         | < 1s       | Low          |
-| Raw ACE Array   | 1KB - 100KB         | < 1s       | Very Low     |
+---
 
-For large NDJSON files (>1GB), consider:
-- Converting to BloodHound format first
-- Extracting only certificate templates
-- Using a machine with sufficient RAM
+## Performance
 
-# Example Output
-## Multi-Template Analysis (BloodHound Format)
-```
-python3 ace_analyzer_v3.py --quiet example_bloodhound_format.json
+| Format | Typical file size | Parse time | Notes |
+|--------|------------------|------------|-------|
+| Certipy JSON | 50 KB – 5 MB | < 1 s | Recommended |
+| Certify plaintext | 10 KB – 1 MB | < 1 s | |
+| BloodHound JSON | 10 KB – 5 MB | < 1 s | |
+| Raw ACE array | 1 KB – 100 KB | < 1 s | ACL only — limited ESC coverage |
+| NDJSON | 100 MB – 5 GB | N/A | Not parsed — convert to BloodHound format first |
 
-[*] Loading data from: example_bloodhound_format.json
-[*] Detected BloodHound JSON format
-[*] Found 2 certificate template(s) and 0 CA(s)
+---
 
-======================================================================
-ACE Analyzer v3.0 - ESC1-ESC8 Analysis Report
-Generated: 2025-12-11 16:49:41
-Input File: example_bloodhound_format.json
-======================================================================
+## Resources
 
-[*] Found 2 certificate template(s) and 0 CA(s)
-
-======================================================================
-Certificate Template: VULNERABLE-TEMPLATE@<DOMAIN>.<LOCAL>
-======================================================================
-Object ID: S-1-5-21-14503262-1260671939-794563710-5001
-
-Template Configuration:
-======================================================================
-  Status: ENABLED
-  Requires Manager Approval: False
-  Enrollee Supplies Subject: True [DANGEROUS]
-  Client Authentication: True
-  Extended Key Usages:
-    - Client Authentication (1.3.6.1.5.5.7.3.2)
-    - Email Protection (1.3.6.1.5.5.7.3.4)
-
-SECURITY ASSESSMENT - ESC VULNERABILITY DETECTION
-======================================================================
-CRITICAL: ESC1 VULNERABILITY DETECTED!
-======================================================================
-This template allows low-privileged users to specify arbitrary
-Subject Alternative Names (SAN) and request certificates for any user.
-
-Vulnerable Principals:
-  - Domain Users
-  - Authenticated Users
-
-CRITICAL: ESC4 VULNERABILITY DETECTED!
-======================================================================
-Low-privileged principals can MODIFY this certificate template,
-allowing them to reconfigure it for privilege escalation.
-
-Vulnerable Principals:
-  Principal: Authenticated Users
-  SID: S-1-5-11
-  Dangerous Rights:
-    [X] WriteProperty
-    [X] WriteDacl
-  [X] Can also ENROLL (complete attack chain possible)
-
-REMEDIATION RECOMMENDATIONS
-======================================================================
-
-ESC1 Remediation:
-  1. Disable 'Enrollee Supplies Subject' flag
-  2. Enable Manager Approval
-  3. Restrict enrollment to specific groups
-
-ESC4 Remediation:
-  1. Remove WriteProperty, WriteDacl, WriteOwner from low-privilege groups
-  2. Audit recent template modifications (Event ID 4899)
-
-General Best Practices:
-  * Use specific security groups for enrollment (not Domain Users)
-  * Regularly audit certificate template permissions
-  * Monitor Event IDs 4886, 4887, 4899 for suspicious activity
-  * Implement least privilege access for all templates
-
-
-======================================================================
-SUMMARY: Analyzed 2 templates and 0 CAs, found 1 template(s) with concerns
-======================================================================
-
-[*] Analysis complete. Results written to: ace_analyzer_output.log
-```
-
-___
-# Resources
-- [Certified Pre-Owned - SpecterOps Whitepaper](https://specterops.io/wp-content/uploads/sites/3/2022/06/Certified_Pre-Owned.pdf)
-- [Certipy Tool](https://github.com/ly4k/Certipy)
+- [Certified Pre-Owned — SpecterOps Whitepaper](https://specterops.io/wp-content/uploads/sites/3/2022/06/Certified_Pre-Owned.pdf)
+- [Certipy (ly4k)](https://github.com/ly4k/Certipy)
+- [Certipy Wiki — Privilege Escalation](https://github.com/ly4k/Certipy/wiki/06-%E2%80%90-Privilege-Escalation)
+- [Certify (GhostPack)](https://github.com/GhostPack/Certify)
+- [Certify 2.0 Release — SpecterOps Blog](https://specterops.io/blog/2025/08/11/certify-2-0/)
 - [ADExplorerSnapshot.py](https://github.com/c3c/ADExplorerSnapshot.py)
-- [BloodHound](https://github.com/SpecterOps/BloodHound)
+- [BloodHound CE](https://github.com/SpecterOps/BloodHound)
+- [ESC15 / EKUwu — TrustedSec](https://trustedsec.com/blog/ekuwu-not-just-another-ad-cs-esc)
+- [ESC16 — SpecterOps Ghostpack Docs](https://docs.specterops.io/ghostpack-docs/Certify.wik-mdx/esc16-security-extension-disabled-on-certificate-authority)
 - [Microsoft AD CS Documentation](https://docs.microsoft.com/en-us/windows-server/identity/ad-cs/)
