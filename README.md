@@ -1,7 +1,6 @@
 Updated version got not fully tested yet, so no guarantee for the output, in the end always keep using your own brain.
 
-
-# ACE Analyzer v4.1
+# ACE Analyzer v4.2
 
 A Python tool for assessing Active Directory Certificate Services (AD CS) security. It parses output from **Certipy**, **Certify**, **Certify 2.0**, **BloodHound / ADExplorerSnapshot.py**, and raw PowerShell ACE exports, then detects ESC1–ESC16 privilege-escalation misconfigurations.
 
@@ -17,30 +16,49 @@ A Python tool for assessing Active Directory Certificate Services (AD CS) securi
 ## Usage
 
 ```
-python3 ace_analyzer_v3.py [options] <input-file>
+python3 ace_analyzer.py [options] <input-file>
 ```
 
 | Flag | Description |
 |------|-------------|
-| `<file>` | Input file (JSON, plaintext, or raw ACE array — format auto-detected) |
+| `<file>` | Input file (JSON, plaintext, or raw ACE array — format auto-detected; optional when using `--attack-path` standalone) |
 | `-q / --quiet` | Only print vulnerability findings, suppress the ACL detail table |
 | `--show-all` | Show every template, including ones with no findings |
 | `-o FILE` | Write a clean (no ANSI colour) copy of the report to FILE (default: `ace_analyzer_output.log`) |
+| `--attack-path / -ap ESC` | Show exploitation commands for a specific ESC (e.g. `ESC1`, `ESC4`, `ESC15`, or `ALL` for every detected ESC). Can be used without a scan file for standalone reference. |
+| `--show-advanced` | Show advanced post-exploitation techniques: Golden Certificate, DCSync via Pass-the-Certificate, Schannel LDAP shell, Shadow Credentials |
+| `--remediation` | Show consolidated remediation guidance for all detected vulnerabilities |
+| `--html FILE` | Generate a self-contained dark-themed HTML report with three tabs: **Vulnerability Overview**, **Abuse Techniques**, **ACL Analysis** (e.g. `report.html`) |
 
 ### Examples
 
 ```bash
 # Scan Certipy JSON output for all vulnerabilities
-python3 ace_analyzer_v3.py certipy_output.json
+python3 ace_analyzer.py certipy_output.json
 
 # Scan Certify plaintext output, only show findings
-python3 ace_analyzer_v3.py -q certify_find.txt
+python3 ace_analyzer.py -q certify_find.txt
 
 # Scan BloodHound dump — show every template including secure ones
-python3 ace_analyzer_v3.py --show-all bloodhound_certtemplates.json
+python3 ace_analyzer.py --show-all bloodhound_certtemplates.json
 
 # Scan and save a clean report
-python3 ace_analyzer_v3.py certipy_output.json -o report_$(date +%F).log
+python3 ace_analyzer.py certipy_output.json -o report_$(date +%F).log
+
+# Show exploitation commands for a specific ESC
+python3 ace_analyzer.py --attack-path ESC1 certipy_output.json
+
+# Show exploitation commands without a scan file (standalone reference)
+python3 ace_analyzer.py --attack-path ESC5
+
+# Show remediation guidance alongside the scan
+python3 ace_analyzer.py --remediation certipy_output.json
+
+# Generate a full HTML report
+python3 ace_analyzer.py --html report.html certipy_output.json
+
+# Full output: attack paths + remediation + HTML report in one run
+python3 ace_analyzer.py --attack-path ALL --html report.html --remediation scan.json
 ```
 
 ### Exit Codes
@@ -89,7 +107,7 @@ certipy find -u 'user@domain.local' -p 'Password123' -dc-ip 10.0.0.1 -json
 ```
 
 ```bash
-python3 ace_analyzer_v3.py 20240101_120000_Certipy.json
+python3 ace_analyzer.py 20240101_120000_Certipy.json
 ```
 
 #### Option B: Only enumerate vulnerable templates (faster, fewer results)
@@ -100,7 +118,7 @@ certipy find -u 'user@domain.local' -p 'Password123' -dc-ip 10.0.0.1 -json -vuln
 ```
 
 ```bash
-python3 ace_analyzer_v3.py -q 20240101_120000_Certipy.json
+python3 ace_analyzer.py -q 20240101_120000_Certipy.json
 ```
 
 #### Option C: BloodHound export (for graph queries + ace_analyzer)
@@ -114,7 +132,7 @@ Unzip, then run on the cert-templates file:
 
 ```bash
 unzip 20240101_120000_Certipy.zip
-python3 ace_analyzer_v3.py 20240101_120000_certtemplates.json
+python3 ace_analyzer.py 20240101_120000_certtemplates.json
 ```
 
 > **OPSEC note:** Certipy issues LDAP queries to the DC. These are not inherently suspicious but will appear in DC logs. Use `-timeout` and avoid `-vulnerable` scans if stealth matters — they generate fewer LDAP calls.
@@ -162,8 +180,8 @@ Certify.exe find /domain:child.domain.local /outfile:certify_child.txt
 Transfer `certify_*.txt` to the analysis host, then:
 
 ```bash
-python3 ace_analyzer_v3.py certify_all.txt
-python3 ace_analyzer_v3.py -q certify_vuln.txt
+python3 ace_analyzer.py certify_all.txt
+python3 ace_analyzer.py -q certify_vuln.txt
 ```
 
 ---
@@ -200,14 +218,14 @@ Transfer output files to the analysis host, then:
 
 ```bash
 # Analyse CAs
-python3 ace_analyzer_v3.py certify2_cas.txt
+python3 ace_analyzer.py certify2_cas.txt
 
 # Analyse templates
-python3 ace_analyzer_v3.py certify2_templates.txt
+python3 ace_analyzer.py certify2_templates.txt
 
 # Combined: run both and merge the findings manually
-python3 ace_analyzer_v3.py certify2_cas.txt -o report_cas.log
-python3 ace_analyzer_v3.py certify2_templates.txt -o report_templates.log
+python3 ace_analyzer.py certify2_cas.txt -o report_cas.log
+python3 ace_analyzer.py certify2_templates.txt -o report_templates.log
 ```
 
 > **Note:** Certify 2.0 output files containing only CA blocks or only template blocks are both supported. If a file has both, the parser handles them in a single pass.
@@ -251,7 +269,7 @@ python3 ADExplorerSnapshot.py snapshot.dat -o ./output/ -m Objects
 #   20240101120000_cas.json
 #   20240101120000_users.json   (ignored by ace_analyzer)
 
-python3 ace_analyzer_v3.py output/20240101120000_certtemplates.json
+python3 ace_analyzer.py output/20240101120000_certtemplates.json
 ```
 
 > **Tip:** If both `*_certtemplates.json` and `*_cas.json` are available, run the tool on both files separately to get CA-level findings (ESC6, ESC7, ESC8, ESC11, ESC16).
@@ -299,7 +317,7 @@ foreach ($t in $templates) {
 ```
 
 ```bash
-python3 ace_analyzer_v3.py TemplateName_aces.json
+python3 ace_analyzer.py TemplateName_aces.json
 ```
 
 ---
