@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ACE Analyzer v4.1 - AD CS Certificate Template Security Assessment Tool
+ACE Analyzer v4.2 - AD CS Certificate Template Security Assessment Tool
 Detects: ESC1-ESC16 (where data allows)
 Supports:
 - Raw ACE JSON arrays
