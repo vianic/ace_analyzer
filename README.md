@@ -694,3 +694,7 @@ python3 ace_analyzer.py TemplateName_aces.json
 - [ESC15 / EKUwu — TrustedSec](https://trustedsec.com/blog/ekuwu-not-just-another-ad-cs-esc)
 - [ESC16 — SpecterOps Ghostpack Docs](https://docs.specterops.io/ghostpack-docs/Certify.wik-mdx/esc16-security-extension-disabled-on-certificate-authority)
 - [Microsoft AD CS Documentation](https://docs.microsoft.com/en-us/windows-server/identity/ad-cs/)
+
+Legal disclaimer:
+this tool is for educational purposes.
+Usage of ace_analyzer without prior mutual consent is illegal.
